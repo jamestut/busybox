@@ -679,14 +679,6 @@ static void parse_inittab(void)
 		/* No inittab file - set up some default behavior */
 		/* Sysinit */
 		new_init_action(SYSINIT, INIT_SCRIPT, "");
-		/* Askfirst shell on tty1-4 */
-		new_init_action(ASKFIRST, bb_default_login_shell, "");
-//TODO: VC_1 instead of ""? "" is console -> ctty problems -> angry users
-		new_init_action(ASKFIRST, bb_default_login_shell, VC_2);
-		new_init_action(ASKFIRST, bb_default_login_shell, VC_3);
-		new_init_action(ASKFIRST, bb_default_login_shell, VC_4);
-		/* Reboot on Ctrl-Alt-Del */
-		new_init_action(CTRLALTDEL, "reboot", "");
 		/* Umount all filesystems on halt/reboot */
 		new_init_action(SHUTDOWN, "umount -a -r", "");
 		/* Swapoff on halt/reboot */
@@ -735,9 +727,6 @@ static void pause_and_low_level_reboot(unsigned magic)
 {
 	pid_t pid;
 
-	/* Allow time for last message to reach serial console, etc */
-	sleep1();
-
 	/* We have to fork here, since the kernel calls do_exit(EXIT_SUCCESS)
 	 * in linux/kernel/sys.c, which can cause the machine to panic when
 	 * the init process exits... */
@@ -751,7 +740,6 @@ static void pause_and_low_level_reboot(unsigned magic)
 	 * we would eternally sleep here - not what we want.
 	 */
 	waitpid(pid, NULL, 0);
-	sleep1(); /* paranoia */
 	_exit(EXIT_SUCCESS);
 }
 
@@ -768,12 +756,10 @@ static void run_shutdown_and_kill_processes(void)
 	kill(-1, SIGTERM);
 	message(L_CONSOLE, "Sent SIG%s to all processes", "TERM");
 	sync();
-	sleep1();
 
 	kill(-1, SIGKILL);
 	message(L_CONSOLE, "Sent SIG%s to all processes", "KILL");
 	sync();
-	/*sleep1(); - callers take care about making a pause */
 }
 
 /* Signal handling by init:
