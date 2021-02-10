@@ -118,6 +118,21 @@
 //config:	be they parsed or ignored by init.
 //config:	The original command-line used to launch init can then be
 //config:	retrieved in /proc/1/cmdline on Linux, for example.
+//config: 
+//config: config FEATURE_INIT_WAITPID
+//config:  bool "Wait for child processes to stop gracefully"
+//config:  default y
+//config:  depends on INIT || LINUXRC
+//config:  help
+//config:  Wait for child processes to stop gracefully after sending SIGTERM,
+//config:  instead of killing them right after.
+//config: 
+//config: config FEATURE_INIT_WAITPID_TIMEOUT
+//config:  int "Graceful wait timeout" if FEATURE_INIT_WAITPID
+//config:  default 30
+//config:  depends on FEATURE_INIT_WAITPID || INIT || LINUXRC
+//config:  help
+//config:  Timeout for graceful child process wait.
 
 //applet:IF_INIT(APPLET(init, BB_DIR_SBIN, BB_SUID_DROP))
 //applet:IF_LINUXRC(APPLET_ODDNAME(linuxrc, init, BB_DIR_ROOT, BB_SUID_DROP, linuxrc))
@@ -154,6 +169,10 @@
 /* Default sysinit script. */
 #ifndef INIT_SCRIPT
 # define INIT_SCRIPT  "/etc/init.d/rcS"
+#endif
+
+#if ENABLE_FEATURE_INIT_WAITPID
+# include <time.h>
 #endif
 
 /* Each type of actions can appear many times. They will be
@@ -756,6 +775,38 @@ static void run_shutdown_and_kill_processes(void)
 	kill(-1, SIGTERM);
 	message(L_CONSOLE, "Sent SIG%s to all processes", "TERM");
 	sync();
+
+#if ENABLE_FEATURE_INIT_WAITPID
+	message(L_CONSOLE, "Graceful wait with timeout of %d seconds.", 
+		CONFIG_FEATURE_INIT_WAITPID_TIMEOUT);
+	struct timespec wait_begin, wait_end;
+	if (clock_gettime(CLOCK_MONOTONIC, &wait_begin) == 0)
+	{
+		for (;;)
+		{
+			int waitcond = 1;
+			// we keep reaping child if we successfully reaped one!
+			for (; waitcond > 0; waitcond = waitpid(-1, NULL, WNOHANG));
+			
+			// no more child to reap!
+			if (waitcond == -1)
+				if (errno == ECHILD)
+				{
+					message(L_CONSOLE, "All processes stopped gracefully.");
+					break;
+				}
+			
+			// retry reaping
+			sleep1();
+			if (clock_gettime(CLOCK_MONOTONIC, &wait_end) == 0)
+				if ((wait_end.tv_sec - wait_begin.tv_sec) > CONFIG_FEATURE_INIT_WAITPID_TIMEOUT)
+				{
+					message(L_CONSOLE, "Graceful wait timed out. Proceed to kill remaining processes.");
+					break;
+				}
+		}
+	}
+#endif
 
 	kill(-1, SIGKILL);
 	message(L_CONSOLE, "Sent SIG%s to all processes", "KILL");
